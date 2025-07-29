@@ -1,0 +1,7 @@
+aiohttp==3.9.1
+python-pptx==0.6.23
+docxtpl==0.16.8
+flask==3.0.0
+werkzeug==3.0.1
+python-multipart==0.0.6
+jinja2==3.1.2
