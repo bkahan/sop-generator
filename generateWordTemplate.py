@@ -1,245 +1,247 @@
 #!/usr/bin/env python3
 """
-Create a sample Word template matching the LS SOP format
-This creates a template with all the required placeholders
+Modify an existing Word document to add docxtpl template placeholders
+This opens an existing SOP template and adds Jinja2 placeholders
 """
 
 from docxtpl import DocxTemplate
 from docx import Document
-from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from pathlib import Path
+import re
 
 
-def create_sop_template():
-    """Create a Word template with the LS SOP structure"""
+def add_placeholders_to_existing_doc(input_path, output_path):
+    """
+    Open an existing Word document and add template placeholders
 
-    # Create a new document
-    doc = Document()
+    Args:
+        input_path (str): Path to existing Word document
+        output_path (str): Path where modified template will be saved
+    """
 
-    # Set default font for the document
-    style = doc.styles['Normal']
-    style.font.name = 'Verdana'
-    style.font.size = Pt(10)
+    # Open the existing document with python-docx first to modify content
+    doc = Document(input_path)
 
-    # Add special notes section (will be removed in final)
-    special_notes = doc.add_paragraph()
-    special_notes.add_run('Special Notes:').bold = True
-    doc.add_paragraph('N/A')
-    doc.add_paragraph('-' * 70)
+    print(f"📖 Opening existing document: {input_path}")
+    print(f"Found {len(doc.paragraphs)} paragraphs")
 
-    # Add instruction to remove highlighted info
-    instruction = doc.add_paragraph()
-    run1 = instruction.add_run('Remove all highlighted information prior to submission')
-    run1.font.highlight_color = 7  # Yellow highlight
-
-    # Add formatting instructions
-    format_inst1 = doc.add_paragraph()
-    run2 = format_inst1.add_run('Heading1, font Verdana, 12 bold')
-    run2.font.highlight_color = 7
-
-    format_inst2 = doc.add_paragraph()
-    run3 = format_inst2.add_run('Body of doc, font Verdana 10')
-    run3.font.highlight_color = 7
-
-    # 1. OBJECTIVE
-    heading1 = doc.add_paragraph('1.  OBJECTIVE')
-    heading1.runs[0].font.bold = True
-    heading1.runs[0].font.size = Pt(12)
-    doc.add_paragraph('{{objective}}')
-    doc.add_paragraph()
-
-    # 2. SCOPE
-    heading2 = doc.add_paragraph('2.  SCOPE')
-    heading2.runs[0].font.bold = True
-    heading2.runs[0].font.size = Pt(12)
-    doc.add_paragraph('{{scope}}')
-    doc.add_paragraph()
-
-    # 3. RESPONSIBILITIES
-    heading3 = doc.add_paragraph('3.  RESPONSIBILITIES')
-    heading3.runs[0].font.bold = True
-    heading3.runs[0].font.size = Pt(12)
-    doc.add_paragraph('{{responsibilities}}')
-    doc.add_paragraph()
-
-    # 4. DEFINITIONS
-    heading4 = doc.add_paragraph('4.  DEFINITIONS')
-    heading4.runs[0].font.bold = True
-    heading4.runs[0].font.size = Pt(12)
-    doc.add_paragraph('{{definitions}}')
-    doc.add_paragraph()
-
-    # 5. PROCEDURE
-    heading5 = doc.add_paragraph('5.  PROCEDURE')
-    heading5.runs[0].font.bold = True
-    heading5.runs[0].font.size = Pt(12)
-    doc.add_paragraph('See Mango File {{mango_pptx_id}} -- {{pptx_title}}.')
-
-    # Add page break before revision sheet
-    doc.add_page_break()
-
-    # REVISION SHEET
-    rev_heading = doc.add_paragraph()
-    rev_heading.add_run('REVISION SHEET').bold = True
-    rev_heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    # Create revision table
-    table = doc.add_table(rows=1, cols=4)
-    table.style = 'Table Grid'
-
-    # Set header row
-    header_cells = table.rows[0].cells
-    header_cells[0].text = 'Date'
-    header_cells[1].text = 'Version'
-    header_cells[2].text = 'Nature of Changes'
-    header_cells[3].text = 'Changed By'
-
-    # Make header bold
-    for cell in header_cells:
-        cell.paragraphs[0].runs[0].font.bold = True
-
-    # Add template row for dynamic content
-    # This will be replaced by docxtpl with actual revision data
-    row_cells = table.add_row().cells
-    row_cells[0].text = '{{date}}'
-    row_cells[1].text = '1.0'
-    row_cells[2].text = 'Initial Release'
-    row_cells[3].text = '{{user_name}}'
-
-    # Add empty rows for future revisions
-    for _ in range(2):
-        table.add_row()
-
-    # Save as template
-    template_path = Path('templates/LS_SOP_Template.docx')
-    template_path.parent.mkdir(exist_ok=True)
-    doc.save(template_path)
-
-    print(f"✅ Created template: {template_path}")
-
-    # Now convert to docxtpl format for dynamic content
-    tpl = DocxTemplate(template_path)
-
-    # Test render with sample data
-    test_context = {
-        'objective': 'This is a test objective.',
-        'scope': 'This SOP applies to all Cassette Manufacturing operations at the US Stoneham facility',
-        'responsibilities': 'Technician: Performs the procedure; Engineer: Reviews results',
-        'definitions': 'N/A',
-        'mango_pptx_id': 'MANGO-2024-001',
-        'pptx_title': 'Test Procedure',
-        'date': '12/15/2024',
-        'user_name': 'John Doe'
+    # Dictionary of text to replace with placeholders
+    replacements = {
+        # You can customize these based on your actual document content
+        'OBJECTIVE_PLACEHOLDER': '{{objective}}',
+        'SCOPE_PLACEHOLDER': '{{scope}}',
+        'RESPONSIBILITIES_PLACEHOLDER': '{{responsibilities}}',
+        'DEFINITIONS_PLACEHOLDER': '{{definitions}}',
+        'MANGO_FILE_ID': '{{mango_pptx_id}}',
+        'PROCEDURE_TITLE': '{{pptx_title}}',
+        'DATE_PLACEHOLDER': '{{date}}',
+        'USER_NAME_PLACEHOLDER': '{{user_name}}'
     }
 
-    # Save template with markers
-    tpl.save(template_path)
+    # Process each paragraph
+    for i, paragraph in enumerate(doc.paragraphs):
+        original_text = paragraph.text
+        modified = False
 
-    # Create a test output to verify
-    test_output = Path('templates/LS_SOP_Template_TEST.docx')
-    tpl.render(test_context)
-    tpl.save(test_output)
+        # Check for text that should be replaced with placeholders
+        for placeholder_text, jinja_placeholder in replacements.items():
+            if placeholder_text in original_text:
+                paragraph.text = original_text.replace(placeholder_text, jinja_placeholder)
+                modified = True
+                print(f"  ✏️  Paragraph {i}: Replaced '{placeholder_text}' with '{jinja_placeholder}'")
 
-    print(f"✅ Created test output: {test_output}")
-    print("\nTemplate placeholders:")
-    print("- {{objective}}")
-    print("- {{scope}}")
-    print("- {{responsibilities}}")
-    print("- {{definitions}}")
-    print("- {{mango_pptx_id}}")
-    print("- {{pptx_title}}")
-    print("- {{date}}")
-    print("- {{user_name}}")
+        # You can also add more sophisticated pattern matching
+        # For example, if you want to replace specific patterns:
+        if 'See Mango File' in original_text and '{{mango_pptx_id}}' not in original_text:
+            # Replace a pattern like "See Mango File XYZ-123 -- Title Here"
+            new_text = re.sub(
+                r'See Mango File [A-Z0-9-]+ -- .*?\.',
+                'See Mango File {{mango_pptx_id}} -- {{pptx_title}}.',
+                original_text
+            )
+            if new_text != original_text:
+                paragraph.text = new_text
+                modified = True
+                print(f"  ✏️  Paragraph {i}: Updated Mango File reference")
+
+    # Process tables (for revision sheet)
+    for table_idx, table in enumerate(doc.tables):
+        print(f"📋 Processing table {table_idx + 1} ({len(table.rows)} rows, {len(table.columns)} columns)")
+
+        # If this looks like a revision table, add placeholders
+        if len(table.columns) == 4 and len(table.rows) > 1:
+            # Check if first row has revision table headers
+            first_row_text = [cell.text.strip().lower() for cell in table.rows[0].cells]
+            if any(word in ' '.join(first_row_text) for word in ['date', 'version', 'changes', 'changed']):
+                print("  📝 Found revision table, adding placeholders...")
+
+                # Add template row (usually row 1, after headers)
+                if len(table.rows) > 1:
+                    template_row = table.rows[1]
+                    template_row.cells[0].text = '{{date}}'
+                    template_row.cells[1].text = '1.0'
+                    template_row.cells[2].text = 'Initial Release'
+                    template_row.cells[3].text = '{{user_name}}'
+                    print("  ✅ Added revision table placeholders")
+
+    # Save the modified document
+    doc.save(output_path)
+    print(f"💾 Saved modified document to: {output_path}")
+
+    # Now convert to DocxTemplate for testing
+    template = DocxTemplate(output_path)
+
+    # Test with sample data
+    test_context = {
+        'objective': 'This SOP describes the procedure for testing template generation.',
+        'scope': 'This SOP applies to all Cassette Manufacturing operations at the US Stoneham facility.',
+        'responsibilities': 'Technician: Performs the procedure according to this SOP\nEngineer: Reviews and approves results',
+        'definitions': 'N/A - No special definitions required for this procedure.',
+        'mango_pptx_id': 'MANGO-2024-001',
+        'pptx_title': 'Cassette Assembly Test Procedure',
+        'date': '12/15/2024',
+        'user_name': 'Manufacturing Engineer'
+    }
+
+    # Create test output
+    test_output_path = output_path.replace('.docx', '_TEST_OUTPUT.docx')
+    template.render(test_context)
+    template.save(test_output_path)
+
+    print(f"🎯 Created test output: {test_output_path}")
+    return template
 
 
-def create_template_with_dynamic_table():
-    """Create a more advanced template with dynamic revision table"""
+def interactive_placeholder_replacement(input_path, output_path):
+    """
+    Interactive version that lets you see the content and decide what to replace
+    """
+    doc = Document(input_path)
 
-    doc = Document()
+    print(f"\n📖 Analyzing document: {input_path}")
+    print("=" * 60)
 
-    # Set default font
-    style = doc.styles['Normal']
-    style.font.name = 'Verdana'
-    style.font.size = Pt(10)
+    # Show document structure
+    print("DOCUMENT STRUCTURE:")
+    for i, paragraph in enumerate(doc.paragraphs):
+        if paragraph.text.strip():  # Only show non-empty paragraphs
+            print(f"  [{i:2d}] {paragraph.text[:80]}{'...' if len(paragraph.text) > 80 else ''}")
 
-    # Main content sections
-    sections = [
-        ('1.  OBJECTIVE', '{{objective}}'),
-        ('2.  SCOPE', '{{scope}}'),
-        ('3.  RESPONSIBILITIES', '{{responsibilities}}'),
-        ('4.  DEFINITIONS', '{{definitions}}'),
-        ('5.  PROCEDURE', 'See Mango File {{mango_pptx_id}} -- {{pptx_title}}.')
-    ]
+    print(f"\nTABLES FOUND: {len(doc.tables)}")
+    for i, table in enumerate(doc.tables):
+        print(f"  Table {i + 1}: {len(table.rows)} rows × {len(table.columns)} columns")
+        if table.rows:
+            first_row = ' | '.join([cell.text[:20] for cell in table.rows[0].cells])
+            print(f"    Headers: {first_row}")
 
-    for heading_text, content in sections:
-        heading = doc.add_paragraph(heading_text)
-        heading.runs[0].font.bold = True
-        heading.runs[0].font.size = Pt(12)
-        doc.add_paragraph(content)
-        doc.add_paragraph()  # Empty line
+    print("\n" + "=" * 60)
+    print("Now you can manually edit the document to add placeholders like:")
+    print("  {{objective}}, {{scope}}, {{responsibilities}}, etc.")
+    print("\nOr run the automatic replacement function.")
 
-    # Page break
-    doc.add_page_break()
+    # Ask user what they want to do
+    choice = input("\nDo you want to (1) auto-replace or (2) manual edit? [1/2]: ")
 
-    # Revision sheet with dynamic table
-    rev_heading = doc.add_paragraph()
-    rev_heading.add_run('REVISION SHEET').bold = True
-    rev_heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if choice == "1":
+        return add_placeholders_to_existing_doc(input_path, output_path)
+    else:
+        print(f"\n📝 Please manually edit {input_path} to add placeholders, then save as {output_path}")
+        print("Then you can use DocxTemplate to render it with data.")
+        return None
 
-    # Add docxtpl tags for dynamic table
-    p = doc.add_paragraph()
-    p.add_run('{%tr for revision in revisions %}')
 
-    # Create table structure
-    table = doc.add_table(rows=1, cols=4)
-    table.style = 'Table Grid'
+def find_and_replace_specific_content(input_path, output_path, replacements_dict):
+    """
+    More targeted replacement based on exact text matches
 
-    # Header
-    header = table.rows[0].cells
-    header[0].text = 'Date'
-    header[1].text = 'Version'
-    header[2].text = 'Nature of Changes'
-    header[3].text = 'Changed By'
+    Args:
+        input_path: Path to existing document
+        output_path: Path for modified template
+        replacements_dict: Dict of {original_text: placeholder} pairs
+    """
+    doc = Document(input_path)
 
-    for cell in header:
-        cell.paragraphs[0].runs[0].font.bold = True
+    print(f"🔍 Searching for specific content to replace...")
 
-    # Dynamic row
-    row = table.add_row().cells
-    row[0].text = '{{revision.date}}'
-    row[1].text = '{{revision.version}}'
-    row[2].text = '{{revision.nature_of_changes}}'
-    row[3].text = '{{revision.changed_by}}'
+    replacements_made = 0
 
-    # End tag
-    p2 = doc.add_paragraph()
-    p2.add_run('{%tr endfor %}')
+    # Process paragraphs
+    for paragraph in doc.paragraphs:
+        original_text = paragraph.text
+        new_text = original_text
 
-    # Save
-    advanced_path = Path('templates/LS_SOP_Template_Advanced.docx')
-    doc.save(advanced_path)
-    print(f"✅ Created advanced template: {advanced_path}")
+        for original, placeholder in replacements_dict.items():
+            if original in new_text:
+                new_text = new_text.replace(original, placeholder)
+                replacements_made += 1
+                print(f"  ✅ Replaced: '{original}' → '{placeholder}'")
+
+        if new_text != original_text:
+            paragraph.text = new_text
+
+    # Process table cells
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                original_text = cell.text
+                new_text = original_text
+
+                for original, placeholder in replacements_dict.items():
+                    if original in new_text:
+                        new_text = new_text.replace(original, placeholder)
+                        replacements_made += 1
+                        print(f"  ✅ Replaced in table: '{original}' → '{placeholder}'")
+
+                if new_text != original_text:
+                    cell.text = new_text
+
+    doc.save(output_path)
+    print(f"\n💾 Made {replacements_made} replacements and saved to: {output_path}")
+
+    return DocxTemplate(output_path)
 
 
 if __name__ == "__main__":
-    print("Creating LS SOP Word Template...")
+    print("SOP Template Modifier")
     print("=" * 50)
 
-    try:
-        # Create basic template
-        create_sop_template()
+    # Define your paths
+    input_document = "path/to/your/existing_sop.docx"  # Change this!
+    output_template = "templates/LS_SOP_Template_Modified.docx"
 
-        # Create advanced template with dynamic table
-        create_template_with_dynamic_table()
+    # Make sure templates directory exists
+    Path("templates").mkdir(exist_ok=True)
 
-        print("\n✅ Templates created successfully!")
-        print("\nNext steps:")
-        print("1. Review the generated templates in the templates/ folder")
-        print("2. Modify formatting as needed in Microsoft Word")
-        print("3. Use 'LS_SOP_Template.docx' with the main application")
+    # Example 1: Automatic replacement with common patterns
+    if Path(input_document).exists():
+        print("Method 1: Automatic placeholder insertion")
+        template = add_placeholders_to_existing_doc(input_document, output_template)
 
-    except Exception as e:
-        print(f"❌ Error creating template: {e}")
-        print("\nMake sure you have docxtpl installed:")
-        print("pip install python-docx docxtpl")
+        print("\n" + "=" * 50)
+        print("Method 2: Specific content replacement")
+
+        # Define exactly what text to replace
+        specific_replacements = {
+            "Enter objective here": "{{objective}}",
+            "Enter scope here": "{{scope}}",
+            "List responsibilities here": "{{responsibilities}}",
+            "Define terms here": "{{definitions}}",
+            "John Doe": "{{user_name}}",
+            "01/01/2024": "{{date}}"
+        }
+
+        template2 = find_and_replace_specific_content(
+            input_document,
+            output_template.replace('.docx', '_specific.docx'),
+            specific_replacements
+        )
+
+    else:
+        print(f"❌ Input document not found: {input_document}")
+        print("Please update the 'input_document' path to point to your existing SOP template.")
+        print("\nExample usage:")
+        print("1. Save your existing Word SOP as 'my_sop_template.docx'")
+        print("2. Update input_document = 'my_sop_template.docx'")
+        print("3. Run this script")
+        print("4. The script will add {{placeholders}} where needed")
+        print("5. Use the resulting template with docxtpl in your web app")
