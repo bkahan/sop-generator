@@ -206,7 +206,7 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # Define your paths
-    input_document = "path/to/your/existing_sop.docx"  # Change this!
+    input_document = "LS-sop.docx"  # Change this!
     output_template = "templates/LS_SOP_Template_Modified.docx"
 
     # Make sure templates directory exists

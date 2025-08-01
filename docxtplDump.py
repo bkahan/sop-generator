@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
 Analyze how docxtpl reads and parses Word document templates
-This script examines a Word document and shows all template variables found
+This script examines a Word document using ONLY docxtpl and shows all template variables
 """
 
 from docxtpl import DocxTemplate
-from docx import Document
 from pathlib import Path
 import re
-import os
-import json
 from typing import Dict, List, Any
-import xml.etree.ElementTree as ET
+from io import BytesIO
 
 
 def analyze_docxtpl_template(template_path: str):
     """
-    Comprehensive analysis of how docxtpl reads a Word template
+    Analyze a Word template using only docxtpl
 
     Args:
         template_path: Path to the Word document template
@@ -32,157 +29,162 @@ def analyze_docxtpl_template(template_path: str):
         return
 
     try:
-        # 1. Load with DocxTemplate
+        # Load with DocxTemplate
         template = DocxTemplate(template_path)
         print("✅ Successfully loaded template with DocxTemplate")
-
-        # 2. Load with python-docx for comparison
-        doc = Document(template_path)
-        print("✅ Successfully loaded document with python-docx")
 
     except Exception as e:
         print(f"❌ Error loading template: {e}")
         return
 
     print("\n" + "=" * 60)
-    print("1. BASIC DOCUMENT STRUCTURE")
+    print("1. EXTRACT TEXT FROM DOCXTPL")
     print("=" * 60)
 
-    print(f"📄 Paragraphs: {len(doc.paragraphs)}")
-    print(f"📋 Tables: {len(doc.tables)}")
-    print(f"🖼️  Inline shapes: {len(doc.inline_shapes) if hasattr(doc, 'inline_shapes') else 'N/A'}")
+    # Extract all text using docxtpl's internal document
+    all_text = extract_text_from_docxtpl(template)
+    print(f"📄 Total characters extracted: {len(all_text)}")
+
+    # Show preview of text
+    if all_text:
+        preview = all_text.replace('\n', ' ').strip()[:200]
+        print(f"📝 Text preview: {preview}{'...' if len(all_text) > 200 else ''}")
 
     print("\n" + "=" * 60)
     print("2. TEMPLATE VARIABLES FOUND")
     print("=" * 60)
 
     # Extract all Jinja2 template variables using regex
-    all_text = extract_all_text_from_doc(doc)
     variables = find_jinja_variables(all_text)
 
     if variables:
-        print(f"🎯 Found {len(variables)} unique template variables:")
+        total_constructs = sum(len(var_list) for var_list in variables.values())
+        print(f"🎯 Found {total_constructs} template constructs:")
+
         for var_type, var_list in variables.items():
             if var_list:
-                print(f"\n  {var_type.upper()}:")
-                for var in sorted(set(var_list)):
+                unique_vars = sorted(set(var_list))
+                print(f"\n  {var_type.upper()} ({len(unique_vars)}):")
+                for var in unique_vars:
                     print(f"    • {var}")
     else:
         print("❌ No Jinja2 template variables found")
 
     print("\n" + "=" * 60)
-    print("3. PARAGRAPH-BY-PARAGRAPH ANALYSIS")
+    print("3. CREATE TEST CONTEXT")
     print("=" * 60)
 
-    for i, paragraph in enumerate(doc.paragraphs):
-        text = paragraph.text.strip()
-        if text:  # Only show non-empty paragraphs
-            jinja_vars = find_jinja_variables(text)
-            has_templates = any(jinja_vars.values())
-
-            status = "🎯" if has_templates else "📝"
-            print(f"{status} Paragraph {i:2d}: {text[:60]}{'...' if len(text) > 60 else ''}")
-
-            if has_templates:
-                for var_type, vars_found in jinja_vars.items():
-                    if vars_found:
-                        print(f"    └─ {var_type}: {vars_found}")
-
-    print("\n" + "=" * 60)
-    print("4. TABLE ANALYSIS")
-    print("=" * 60)
-
-    for table_idx, table in enumerate(doc.tables):
-        print(f"📋 Table {table_idx + 1}: {len(table.rows)} rows × {len(table.columns)} columns")
-
-        has_template_vars = False
-        for row_idx, row in enumerate(table.rows):
-            for col_idx, cell in enumerate(row.cells):
-                cell_text = cell.text.strip()
-                if cell_text:
-                    jinja_vars = find_jinja_variables(cell_text)
-                    if any(jinja_vars.values()):
-                        has_template_vars = True
-                        print(f"  🎯 Cell ({row_idx}, {col_idx}): {cell_text}")
-                        for var_type, vars_found in jinja_vars.items():
-                            if vars_found:
-                                print(f"      └─ {var_type}: {vars_found}")
-
-        if not has_template_vars:
-            # Show first row as headers
-            if table.rows:
-                headers = [cell.text.strip() for cell in table.rows[0].cells]
-                print(f"    Headers: {' | '.join(headers)}")
-
-    print("\n" + "=" * 60)
-    print("5. TEST TEMPLATE RENDERING")
-    print("=" * 60)
-
-    # Try to render with dummy data
+    # Create test context based on found variables
     test_context = create_test_context(variables)
 
     if test_context:
-        print("🧪 Testing template rendering with dummy data:")
-        print(f"   Context variables: {list(test_context.keys())}")
+        print(f"🧪 Created test context with {len(test_context)} variables:")
+        for key, value in test_context.items():
+            print(f"    • {key}: '{value}'")
+    else:
+        print("⚠️  No variables found to create test context")
 
+    print("\n" + "=" * 60)
+    print("4. TEST TEMPLATE RENDERING")
+    print("=" * 60)
+
+    if test_context:
         try:
-            # Create a copy for testing
+            # Test rendering with dummy data
             test_template = DocxTemplate(template_path)
             test_template.render(test_context)
 
-            # Save to memory stream to test if it works
-            from io import BytesIO
+            # Save to memory to test if it works
             output_stream = BytesIO()
             test_template.save(output_stream)
 
+            output_size = len(output_stream.getvalue())
             print("✅ Template rendering successful!")
-            print(f"   Generated document size: {len(output_stream.getvalue())} bytes")
+            print(f"   Generated document size: {output_size:,} bytes")
+
+            # Optionally save test output
+            test_output_path = template_path.replace('.docx', '_TEST_OUTPUT.docx')
+            test_template.save(test_output_path)
+            print(f"💾 Test output saved: {test_output_path}")
 
         except Exception as e:
             print(f"❌ Template rendering failed: {e}")
-            print("   This might indicate missing variables or syntax errors")
+            print("   This might indicate:")
+            print("   - Missing variables in test context")
+            print("   - Syntax errors in template")
+            print("   - Invalid Jinja2 constructs")
+
+            # Try to identify the problematic variable
+            error_str = str(e)
+            if "undefined" in error_str.lower():
+                print(f"   - Undefined variable error: {error_str}")
+    else:
+        print("⚠️  Skipping render test - no variables found")
 
     print("\n" + "=" * 60)
-    print("6. DOCXTPL INTERNAL ANALYSIS")
+    print("5. VARIABLE ANALYSIS")
     print("=" * 60)
 
-    # Try to access internal template structure
-    try:
-        # Look at the internal Jinja2 environment
-        if hasattr(template, 'docx'):
-            print("📦 DocxTemplate internal structure:")
-            print(f"   • Document object: {type(template.docx)}")
+    # Analyze variable patterns
+    simple_vars = variables.get('variables', [])
+    if simple_vars:
+        print("🔍 Variable pattern analysis:")
 
-        # Check for Jinja2 environment
-        if hasattr(template, 'jinja_env'):
-            print(f"   • Jinja2 environment: {type(template.jinja_env)}")
+        # Group by common patterns
+        patterns = {
+            'dates': [v for v in simple_vars if any(x in v.lower() for x in ['date', 'time'])],
+            'names': [v for v in simple_vars if any(x in v.lower() for x in ['name', 'user', 'author'])],
+            'ids': [v for v in simple_vars if any(x in v.lower() for x in ['id', 'number', 'version'])],
+            'content': [v for v in simple_vars if
+                        any(x in v.lower() for x in ['objective', 'scope', 'title', 'description'])]
+        }
 
-    except Exception as e:
-        print(f"⚠️  Could not analyze internal structure: {e}")
+        for pattern_type, pattern_vars in patterns.items():
+            if pattern_vars:
+                print(f"   • {pattern_type.title()}: {pattern_vars}")
+
+        # Show variables that don't match common patterns
+        all_pattern_vars = set()
+        for pattern_vars in patterns.values():
+            all_pattern_vars.update(pattern_vars)
+
+        other_vars = [v for v in simple_vars if v not in all_pattern_vars]
+        if other_vars:
+            print(f"   • Other: {other_vars}")
 
     return {
         'variables': variables,
-        'paragraph_count': len(doc.paragraphs),
-        'table_count': len(doc.tables),
-        'test_context': test_context
+        'test_context': test_context,
+        'text_length': len(all_text)
     }
 
 
-def extract_all_text_from_doc(doc: Document) -> str:
-    """Extract all text from document including paragraphs and tables"""
-    all_text = []
+def extract_text_from_docxtpl(template: DocxTemplate) -> str:
+    """
+    Extract all text from a DocxTemplate using its internal document
+    """
+    try:
+        # Access the internal python-docx document object
+        doc = template.docx
+        all_text = []
 
-    # Get text from paragraphs
-    for paragraph in doc.paragraphs:
-        all_text.append(paragraph.text)
+        # Extract from paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                all_text.append(paragraph.text)
 
-    # Get text from tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                all_text.append(cell.text)
+        # Extract from tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        all_text.append(cell.text)
 
-    return '\n'.join(all_text)
+        return '\n'.join(all_text)
+
+    except Exception as e:
+        print(f"⚠️  Error extracting text: {e}")
+        return ""
 
 
 def find_jinja_variables(text: str) -> Dict[str, List[str]]:
@@ -196,7 +198,6 @@ def find_jinja_variables(text: str) -> Dict[str, List[str]]:
         'variables': r'\{\{\s*([^}]+)\s*\}\}',  # {{ variable }}
         'blocks': r'\{\%\s*([^%]+)\s*\%\}',  # {% block %}
         'comments': r'\{\#\s*([^#]+)\s*\#\}',  # {# comment #}
-        'filters': r'\{\{\s*([^|]+)\|([^}]+)\s*\}\}',  # {{ var|filter }}
     }
 
     results = {}
@@ -204,13 +205,20 @@ def find_jinja_variables(text: str) -> Dict[str, List[str]]:
     for pattern_type, pattern in patterns.items():
         matches = re.findall(pattern, text)
 
-        if pattern_type == 'filters':
-            # For filters, we get tuples (variable, filter)
-            variables = [match[0].strip() for match in matches]
-            filters = [match[1].strip() for match in matches]
-            results[pattern_type] = [f"{var}|{filt}" for var, filt in zip(variables, filters)]
-        else:
-            results[pattern_type] = [match.strip() for match in matches]
+        # Clean up the matches
+        cleaned_matches = []
+        for match in matches:
+            # Remove filters and get just the variable name
+            if pattern_type == 'variables':
+                # Split on | to separate variable from filters
+                var_name = match.split('|')[0].strip()
+                # Split on . to get base variable name
+                base_var = var_name.split('.')[0].strip()
+                cleaned_matches.append(base_var)
+            else:
+                cleaned_matches.append(match.strip())
+
+        results[pattern_type] = cleaned_matches
 
     return results
 
@@ -224,8 +232,12 @@ def create_test_context(variables: Dict[str, List[str]]) -> Dict[str, Any]:
     simple_vars = variables.get('variables', [])
 
     for var in simple_vars:
-        # Clean up variable name (remove filters, etc.)
-        clean_var = var.split('|')[0].split('.')[0].strip()
+        # Clean up variable name
+        clean_var = var.strip()
+
+        # Skip if already added
+        if clean_var in context:
+            continue
 
         # Generate appropriate dummy data based on variable name
         if any(keyword in clean_var.lower() for keyword in ['date', 'time']):
@@ -236,53 +248,30 @@ def create_test_context(variables: Dict[str, List[str]]) -> Dict[str, Any]:
             context[clean_var] = 'TEST-001'
         elif any(keyword in clean_var.lower() for keyword in ['title', 'subject']):
             context[clean_var] = 'Test Document Title'
+        elif any(keyword in clean_var.lower() for keyword in ['objective']):
+            context[clean_var] = 'This is a test objective for the procedure.'
+        elif any(keyword in clean_var.lower() for keyword in ['scope']):
+            context[clean_var] = 'This SOP applies to all test operations.'
+        elif any(keyword in clean_var.lower() for keyword in ['responsibilities']):
+            context[clean_var] = 'Technician: Execute procedure\nEngineer: Review results'
+        elif any(keyword in clean_var.lower() for keyword in ['definitions']):
+            context[clean_var] = 'N/A'
         else:
             context[clean_var] = f'Test value for {clean_var}'
 
     return context
 
 
-def compare_extraction_methods(template_path: str):
-    """
-    Compare different methods of extracting variables from templates
-    """
-
-    print("\n" + "=" * 60)
-    print("7. COMPARISON OF EXTRACTION METHODS")
-    print("=" * 60)
-
-    # Method 1: Manual regex on raw text
-    doc = Document(template_path)
-    raw_text = extract_all_text_from_doc(doc)
-    manual_vars = find_jinja_variables(raw_text)
-
-    print("📝 Method 1: Manual regex extraction")
-    print(f"   Variables found: {len(manual_vars.get('variables', []))}")
-    print(f"   Variables: {manual_vars.get('variables', [])}")
-
-    # Method 2: Try to access docxtpl internals (if possible)
-    try:
-        template = DocxTemplate(template_path)
-        print("\n🔧 Method 2: DocxTemplate internal analysis")
-        print("   (Limited access to internals in current docxtpl version)")
-
-    except Exception as e:
-        print(f"\n❌ Method 2 failed: {e}")
-
-    return manual_vars
-
-
 def analyze_template_file(file_path: str):
     """Main analysis function"""
 
     if not Path(file_path).exists():
-        print(f"Creating a sample template for testing...")
+        print(f"❌ File not found: {file_path}")
+        print("Please provide a valid Word document path.")
+        return None
 
     # Run the analysis
     results = analyze_docxtpl_template(file_path)
-
-    # Additional comparison
-    compare_extraction_methods(file_path)
 
     # Summary
     print("\n" + "=" * 80)
@@ -291,34 +280,44 @@ def analyze_template_file(file_path: str):
 
     if results:
         total_vars = sum(len(vars_list) for vars_list in results['variables'].values())
-        print(f"📊 Total template constructs found: {total_vars}")
-        print(f"📄 Document structure: {results['paragraph_count']} paragraphs, {results['table_count']} tables")
+        simple_vars = len(results['variables'].get('variables', []))
+
+        print(f"📊 Total template constructs: {total_vars}")
+        print(f"🎯 Simple variables: {simple_vars}")
+        print(f"📄 Text extracted: {results['text_length']:,} characters")
+
         if results['test_context']:
-            print(f"🧪 Test context created with {len(results['test_context'])} variables")
+            print(f"🧪 Test context: {len(results['test_context'])} variables")
+            print("\n🔧 Ready for docxtpl rendering with:")
+            print("   template = DocxTemplate('your_file.docx')")
+            print("   template.render(context)")
+            print("   template.save('output.docx')")
+        else:
+            print("⚠️  No variables found - this may not be a template")
 
     return results
 
+
 if __name__ == "__main__":
-    print("DocxTemplate Variable Analyzer")
+    print("DocxTemplate Variable Analyzer (Pure docxtpl)")
     print("=" * 50)
 
-    # You can specify your template file here
-    template_file = "LS Standard Operating Procedure Template 20107897 - v6.0 - 20107897.docx"  # Change this to your file
-
-    # Alternative: Ask user for file path
+    # Get file path from user or command line
     import sys
 
     if len(sys.argv) > 1:
         template_file = sys.argv[1]
     else:
-        template_file = input("Enter absolute path to Word template (or press Enter for default): ").strip()
+        template_file = input("Enter path to Word template: ").strip()
         if not template_file:
-            template_file = os.path.abspath(template_file)
+            print("❌ No file path provided")
+            sys.exit(1)
 
     # Run the analysis
     try:
         results = analyze_template_file(template_file)
-        print(f"\n✅ Analysis complete for: {template_file}")
+        if results:
+            print(f"\n✅ Analysis complete for: {template_file}")
 
     except Exception as e:
         print(f"❌ Analysis failed: {e}")

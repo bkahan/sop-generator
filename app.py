@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class Config:
     CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', 'your-api-key-here')
     CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-    CLAUDE_MODEL = "claude-3-opus-20240229"  # Update to your preferred model
+    CLAUDE_MODEL = "claude-3-sonnet-20240229"  # Updated model name
 
     UPLOAD_FOLDER = Path('uploads')
     OUTPUT_FOLDER = Path('outputs')
@@ -110,7 +110,7 @@ Remember: Your ENTIRE response must be a single valid JSON object with no additi
 
 # Flask app for web interface
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 256 * 1024 * 1024  # 16MB max file size
 
 
 class PowerPointProcessor:
@@ -191,27 +191,57 @@ class ClaudeAPIClient:
                         headers=self.headers,
                         json=payload
                 ) as response:
+                    response_text = await response.text()
+
                     if response.status == 200:
-                        data = await response.json()
-                        return {
-                            'success': True,
-                            'content': data['content'][0]['text'],
-                            'usage': data.get('usage', {})
-                        }
+                        try:
+                            data = json.loads(response_text)
+                            return {
+                                'success': True,
+                                'content': data['content'][0]['text'],
+                                'usage': data.get('usage', {})
+                            }
+                        except (json.JSONDecodeError, KeyError) as e:
+                            logger.error(f"Failed to parse API response: {e}")
+                            logger.error(f"Response text: {response_text[:500]}")
+                            return {
+                                'success': False,
+                                'error': 'Invalid API response format',
+                                'details': str(e)
+                            }
                     else:
-                        error_text = await response.text()
-                        logger.error(f"Claude API error: {response.status} - {error_text}")
+                        # Log the actual error response
+                        logger.error(f"Claude API error: {response.status}")
+                        logger.error(f"Response: {response_text[:500]}")
+
+                        # Try to parse error message
+                        error_msg = f"API error: {response.status}"
+                        try:
+                            error_data = json.loads(response_text)
+                            if 'error' in error_data:
+                                error_msg = error_data['error'].get('message', error_msg)
+                        except:
+                            # If response is HTML, it's likely an auth error
+                            if response_text.startswith('<'):
+                                error_msg = "Authentication failed. Please check your API key."
+
                         return {
                             'success': False,
-                            'error': f"API error: {response.status}",
-                            'details': error_text
+                            'error': error_msg,
+                            'details': response_text[:500]
                         }
 
-            except Exception as e:
-                logger.error(f"Exception calling Claude API: {str(e)}")
+            except aiohttp.ClientError as e:
+                logger.error(f"Network error calling Claude API: {str(e)}")
                 return {
                     'success': False,
-                    'error': str(e)
+                    'error': f"Network error: {str(e)}"
+                }
+            except Exception as e:
+                logger.error(f"Unexpected error calling Claude API: {str(e)}")
+                return {
+                    'success': False,
+                    'error': f"Unexpected error: {str(e)}"
                 }
 
     def _format_pptx_content(self, pptx_content: Dict) -> str:
@@ -521,7 +551,7 @@ def index():
 
                 <div class="form-group">
                     <label for="template">Template Filename:</label>
-                    <input type="text" name="template" value="LS Standard Operating Procedure Template.docx" required>
+                    <input type="text" name="template" value="LS-sop.docx" required>
                 </div>
 
                 <button type="submit">Generate SOP Documents</button>
@@ -585,7 +615,7 @@ async def upload_files():
     """Handle file upload and processing"""
     files = request.files.getlist('files')
     custom_prompt = request.form.get('prompt', SOPDocumentConfig.DEFAULT_SOP_PROMPT)
-    template_name = request.form.get('template', 'LS Standard Operating Procedure Template.docx')
+    template_name = request.form.get('template', 'LS-sop.docx')
     user_name = request.form.get('user_name', Config.DEFAULT_USER_NAME)
     mango_prefix = request.form.get('mango_prefix', '')
 
